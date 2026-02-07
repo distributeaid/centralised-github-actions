@@ -78,11 +78,12 @@ runs:
           const closingKeyword = `Fixes #${issueNumber}`;
 
           // Validate issue exists in "DA Tech" organization project board
+          // Validate issue exists in "DA Tech" organization project board
           try {
             const projectQuery = `
               query($org: String!) {
                 organization(login: $org) {
-                  projectsV2(first: 10, query: "DA Tech") {
+                  projectsV2(first: 10) {
                     nodes {
                       title
                       number
@@ -112,20 +113,28 @@ runs:
               org: context.repo.owner
             });
 
-            // DEBUG: Log all projects found
-            core.info(`Projects found: ${result.organization.projectsV2.nodes.map(p => p.title).join(', ')}`);
+            // DEBUG: Log raw result
+            core.info(`Raw projects data: ${JSON.stringify(result.organization.projectsV2.nodes, null, 2)}`);
+            core.info(`Number of projects: ${result.organization.projectsV2.nodes.length}`);
 
-            const daTechProject = result.organization.projectsV2.nodes.find(p => p.title === "DA Tech");
+            // Try to find projects with any title variation
+            for (const project of result.organization.projectsV2.nodes) {
+              core.info(`Project found - Title: "${project.title}", Number: ${project.number}, Items: ${project.items.totalCount}`);
+            }
+
+            const daTechProject = result.organization.projectsV2.nodes.find(p => 
+              p.title && p.title.trim().toLowerCase() === "da tech"
+            );
             
             if (!daTechProject) {
-              core.error("Available projects: " + result.organization.projectsV2.nodes.map(p => p.title).join(', '));
+              const availableTitles = result.organization.projectsV2.nodes.map(p => `"${p.title}"`).join(', ');
+              core.error(`Available projects: ${availableTitles}`);
               throw new Error("DA Tech project not found");
             }
 
-            // DEBUG: Log project stats
+            // Continue with rest of validation...
             core.info(`DA Tech project has ${daTechProject.items.totalCount} total items (fetched first 100)`);
             
-            // DEBUG: Log first few issue numbers
             const issueNumbers = daTechProject.items.nodes
               .filter(item => item.content?.number)
               .map(item => `#${item.content.number} (${item.content.repository?.owner?.login}/${item.content.repository?.name})`);
@@ -137,14 +146,14 @@ runs:
                             item.content?.repository?.owner?.login === context.repo.owner;
               
               if (item.content?.number === parseInt(issueNumber)) {
-                core.info(`Found issue #${issueNumber} but checking repo: ${item.content?.repository?.owner?.login}/${item.content?.repository?.name} vs ${context.repo.owner}/${context.repo.repo}`);
+                core.info(`Found issue #${issueNumber} in repo: ${item.content?.repository?.owner?.login}/${item.content?.repository?.name}`);
               }
               
               return matches;
             });
 
             if (!issueExists) {
-              core.error(`Issue #${issueNumber} not found in first 100 items of DA Tech board for repo ${context.repo.owner}/${context.repo.repo}`);
+              core.error(`Issue #${issueNumber} not found for repo ${context.repo.owner}/${context.repo.repo}`);
               throw new Error("Issue not in DA Tech board");
             }
             
