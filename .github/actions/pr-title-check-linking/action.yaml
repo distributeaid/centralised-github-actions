@@ -77,25 +77,53 @@ runs:
           const issueNumber = match[2];
           const closingKeyword = `Fixes #${issueNumber}`;
 
-          // Validate issue exists in "DA Tech" project board
+          // Validate issue exists in "DA Tech" organization project board
           try {
             const projectQuery = `
-              query($owner: String!, $repo: String!, $issueNumber: Int!) {
-                repository(owner: $owner, name: $repo) {
-                  issue(number: $issueNumber) {
-                    id
+              query($org: String!, $issueNumber: Int!) {
+                organization(login: $org) {
+                  projectsV2(first: 10, query: "DA Tech") {
+                    nodes {
+                      title
+                      items(first: 100) {
+                        nodes {
+                          content {
+                            ... on Issue {
+                              number
+                              repository {
+                                name
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
                   }
                 }
               }
             `;
 
-            await github.graphql(projectQuery, {
-              owner: context.repo.owner,
-              repo: context.repo.repo,
+            const result = await github.graphql(projectQuery, {
+              org: context.repo.owner,
               issueNumber: parseInt(issueNumber)
             });
+
+            const daTechProject = result.organization.projectsV2.nodes.find(p => p.title === "DA Tech");
             
-            // Issue exists - remove any previous error comments
+            if (!daTechProject) {
+              throw new Error("DA Tech project not found");
+            }
+
+            const issueExists = daTechProject.items.nodes.some(item => 
+              item.content?.number === parseInt(issueNumber) && 
+              item.content?.repository?.name === context.repo.repo
+            );
+
+            if (!issueExists) {
+              throw new Error("Issue not in DA Tech board");
+            }
+            
+            // Since Issue exists, remove any previous error comments
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -113,7 +141,6 @@ runs:
             }
             
           } catch (error) {
-            // Check if error comment already exists
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -121,7 +148,6 @@ runs:
             });
             const issueErrorComment = comments.find(c => c.body.includes("Issue #") && c.body.includes("does not exist"));
             
-            // Delete old comment if it exists (might have different issue number)
             if (issueErrorComment) {
               await github.rest.issues.deleteComment({
                 owner: context.repo.owner,
@@ -130,15 +156,14 @@ runs:
               });
             }
             
-            // Always post new comment with current issue number
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: number,
-              body: `Issue #${issueNumber} does not exist in this repository.`
+              body: `Issue #${issueNumber} does not exist in the "DA Tech" project board.`
             });
             
-            core.setFailed(`Issue #${issueNumber} does not exist in this repository.`);
+            core.setFailed(`Issue #${issueNumber} does not exist in the "DA Tech" project board.`);
             return;
           }
 
