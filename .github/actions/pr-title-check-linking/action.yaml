@@ -1,0 +1,91 @@
+name: 'PR Title Linker & Labeler'
+description: 'Enforces PR title conventions, links issues, and applies labels'
+inputs:
+  github-token:
+    description: 'GitHub Token for API access'
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: Run PR Metadata Script
+      uses: actions/github-script@v8
+      with:
+        github-token: ${{ inputs.github-token }}
+        script: |
+          const { title, body, number } = context.payload.pull_request;
+            const header = "⚠️ **Watch out! Invalid PR Title Format:**";
+            
+            // Checks title for NOISSUE as a bypass
+            const isBypass = title.toUpperCase().includes("NOISSUE");
+
+            // Checks existing comments for cleanup if there is an already existing comment from the bot to avoid duplicates
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: number,
+            });
+            const botComment = comments.find(c => c.body.includes(header));
+
+            if (isBypass) {
+              console.log("NOISSUE detected. Bypassing validation.");
+              if (botComment) {
+                await github.rest.issues.deleteComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: botComment.id
+                });
+              }
+              return;
+            }
+
+            // The Regex gets the type, issue number, and description from the title
+            const titleRegex = /^([a-z]+)\/(\d+)\/(.+)/i;
+            const match = title.match(titleRegex);
+
+            if (!match) {
+              if (!botComment) {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: number,
+                  body: `${header} Please use \`type/issue-number/description\` or include \`NOISSUE\` in the title.`
+                });
+              }
+              return; 
+            }
+
+            // Cleans up the warning if title is valid
+            if (botComment) {
+              await github.rest.issues.deleteComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id
+              });
+            }
+
+            // Auto-links to Project (Updates Description)
+            const prType = match[1].toLowerCase();
+            const issueNumber = match[2];
+            const closingKeyword = `\nFixes #${issueNumber}`; 
+            
+            if (!body || !body.includes(`Fixes #${issueNumber}`)) {
+              await github.rest.pulls.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: number,
+                body: (body || "") + closingKeyword
+              });
+            }
+
+            // Applies PR type label
+            try {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: number,
+                labels: [prType]
+              });
+            } catch (e) {
+              console.log(`Label "${prType}" not applied: ${e.message}`);
+            }
