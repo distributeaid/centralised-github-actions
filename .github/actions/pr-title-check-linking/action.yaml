@@ -14,78 +14,100 @@ runs:
         github-token: ${{ inputs.github-token }}
         script: |
           const { title, body, number } = context.payload.pull_request;
-            const header = "⚠️ **Watch out! Invalid PR Title Format:**";
-            
-            // Checks title for NOISSUE as a bypass
-            const isBypass = title.toUpperCase().includes("NOISSUE");
+          const header = "⚠️ **Watch out! Invalid PR Title Format:**";
+          const managedMarker = "";
+          const managedTypes = ['feat', 'fix', 'chore', 'docs', 'refactor', 'bug', 'style', 'test'];
 
-            // Checks existing comments for cleanup if there is an already existing comment from the bot to avoid duplicates
-            const { data: comments } = await github.rest.issues.listComments({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: number,
-            });
-            const botComment = comments.find(c => c.body.includes(header));
+          const { data: currentLabels } = await github.rest.issues.listLabelsOnIssue({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: number,
+          });
+          const currentLabelNames = currentLabels.map(l => l.name.toLowerCase());
 
-            if (isBypass) {
-              console.log("NOISSUE detected. Bypassing validation.");
-              if (botComment) {
-                await github.rest.issues.deleteComment({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  comment_id: botComment.id
-                });
-              }
-              return;
-            }
+          const { data: comments } = await github.rest.issues.listComments({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: number,
+          });
+          const botComment = comments.find(c => c.body.includes(header));
 
-            // The Regex gets the type, issue number, and description from the title
-            const titleRegex = /^([a-z]+)\/(\d+)\/(.+)/i;
-            const match = title.match(titleRegex);
-
-            if (!match) {
-              if (!botComment) {
-                await github.rest.issues.createComment({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: number,
-                  body: `${header} Please use \`type/issue-number/description\` or include \`NOISSUE\` in the title.`
-                });
-              }
-              return; 
-            }
-
-            // Cleans up the warning if title is valid
+          if (title.toUpperCase().includes("NOISSUE")) {
+            core.info("Bypass keyword 'NOISSUE' detected.");
             if (botComment) {
               await github.rest.issues.deleteComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 comment_id: botComment.id
               });
+              core.info("Deleted previous validation warning.");
             }
+            return;
+          }
 
-            // Auto-links to Project (Updates Description)
-            const prType = match[1].toLowerCase();
-            const issueNumber = match[2];
-            const closingKeyword = `\nFixes #${issueNumber}`; 
-            
-            if (!body || !body.includes(`Fixes #${issueNumber}`)) {
-              await github.rest.pulls.update({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                pull_number: number,
-                body: (body || "") + closingKeyword
-              });
-            }
+          const titleRegex = /^([a-z]+)\/(\d+)\/(.+)/i;
+          const match = title.match(titleRegex);
 
-            // Applies PR type label
-            try {
-              await github.rest.issues.addLabels({
+          if (!match) {
+            core.warning("Title does not match required format: type/issue-number/description");
+            if (!botComment) {
+              await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: number,
-                labels: [prType]
+                body: `${header} Please use \`type/issue-number/description\` or include \`NOISSUE\` in the title.`
               });
-            } catch (e) {
-              console.log(`Label "${prType}" not applied: ${e.message}`);
             }
+            return; 
+          }
+
+          // Title is valid - Clean up warning if it exists
+          if (botComment) {
+            await github.rest.issues.deleteComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: botComment.id
+            });
+          }
+
+          const prType = match[1].toLowerCase(); // Normalize case
+          const issueNumber = match[2];
+          const closingKeyword = `Fixes #${issueNumber}`;
+
+          // We check if the link already exists. If not, we append it with a marker.
+          if (!body || !body.includes(closingKeyword)) {
+            core.info(`Linking PR to issue #${issueNumber}`);
+            
+            // Remove any old managed sections to prevent duplicates
+            const cleanBody = body ? body.split(managedMarker)[0].trim() : "";
+            const newBody = `${cleanBody}\n\n${managedMarker}\n${closingKeyword}`;
+
+            await github.rest.pulls.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: number,
+              body: newBody
+            });
+          }
+
+          if (managedTypes.includes(prType) && !currentLabelNames.includes(prType)) {
+            core.info(`Adding label: ${prType}`);
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: number,
+              labels: [prType]
+            }).catch(err => core.error(`Failed to add label ${prType}: ${err.message}`));
+          }
+
+          for (const labelName of currentLabelNames) {
+            if (managedTypes.includes(labelName) && labelName !== prType) {
+              core.info(`Removing stale label: ${labelName}`);
+              await github.rest.issues.removeLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: number,
+                name: labelName
+              }).catch(() => core.info(`Label ${labelName} already gone.`));
+            }
+          }
