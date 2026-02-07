@@ -14,7 +14,7 @@ runs:
         github-token: ${{ inputs.github-token }}
         script: |
           const { title, body, number } = context.payload.pull_request;
-          const header = "⚠️ **Watch out! Invalid PR Title Format:**";
+          const header = "**Watch out! Invalid PR Title Format:**";
           const managedMarker = "";
           const managedTypes = ['feat', 'fix', 'chore', 'docs', 'refactor', 'bug', 'style', 'test'];
 
