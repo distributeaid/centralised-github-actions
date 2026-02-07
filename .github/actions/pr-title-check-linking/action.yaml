@@ -85,13 +85,18 @@ runs:
                   projectsV2(first: 10, query: "DA Tech") {
                     nodes {
                       title
+                      number
                       items(first: 100) {
+                        totalCount
                         nodes {
                           content {
                             ... on Issue {
                               number
                               repository {
                                 name
+                                owner {
+                                  login
+                                }
                               }
                             }
                           }
@@ -108,28 +113,51 @@ runs:
               issueNumber: parseInt(issueNumber)
             });
 
+            // DEBUG: Log all projects found
+            core.info(`Projects found: ${result.organization.projectsV2.nodes.map(p => p.title).join(', ')}`);
+
             const daTechProject = result.organization.projectsV2.nodes.find(p => p.title === "DA Tech");
             
             if (!daTechProject) {
+              core.error("Available projects: " + result.organization.projectsV2.nodes.map(p => p.title).join(', '));
               throw new Error("DA Tech project not found");
             }
 
-            const issueExists = daTechProject.items.nodes.some(item => 
-              item.content?.number === parseInt(issueNumber) && 
-              item.content?.repository?.name === context.repo.repo
-            );
+            // DEBUG: Log project stats
+            core.info(`DA Tech project has ${daTechProject.items.totalCount} total items (fetched first 100)`);
+            
+            // DEBUG: Log first few issue numbers
+            const issueNumbers = daTechProject.items.nodes
+              .filter(item => item.content?.number)
+              .map(item => `#${item.content.number} (${item.content.repository?.owner?.login}/${item.content.repository?.name})`);
+            core.info(`Sample issues in board: ${issueNumbers.slice(0, 10).join(', ')}`);
+
+            const issueExists = daTechProject.items.nodes.some(item => {
+              const matches = item.content?.number === parseInt(issueNumber) && 
+                            item.content?.repository?.name === context.repo.repo &&
+                            item.content?.repository?.owner?.login === context.repo.owner;
+              
+              if (item.content?.number === parseInt(issueNumber)) {
+                core.info(`Found issue #${issueNumber} but repo mismatch: ${item.content?.repository?.owner?.login}/${item.content?.repository?.name} vs ${context.repo.owner}/${context.repo.repo}`);
+              }
+              
+              return matches;
+            });
 
             if (!issueExists) {
+              core.error(`Issue #${issueNumber} not found in first 100 items of DA Tech board for repo ${context.repo.owner}/${context.repo.repo}`);
               throw new Error("Issue not in DA Tech board");
             }
             
-            // Since Issue exists, remove any previous error comments
+            core.info(`✓ Issue #${issueNumber} validated in DA Tech board`);
+            
+            // Issue exists - remove any previous error comments
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: number,
             });
-            const issueErrorComment = comments.find(c => c.body.includes("Issue #") && c.body.includes("does not exist"));
+            const issueErrorComment = comments.find(c => c.body.includes("❌ Issue #") && c.body.includes("does not exist"));
             
             if (issueErrorComment) {
               await github.rest.issues.deleteComment({
@@ -141,12 +169,14 @@ runs:
             }
             
           } catch (error) {
+            core.error(`Validation error: ${error.message}`);
+            
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: number,
             });
-            const issueErrorComment = comments.find(c => c.body.includes("Issue #") && c.body.includes("does not exist"));
+            const issueErrorComment = comments.find(c => c.body.includes("❌ Issue #") && c.body.includes("does not exist"));
             
             if (issueErrorComment) {
               await github.rest.issues.deleteComment({
@@ -160,7 +190,7 @@ runs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: number,
-              body: `Issue #${issueNumber} does not exist in the "DA Tech" project board.`
+              body: `❌ Issue #${issueNumber} does not exist in the "DA Tech" project board.`
             });
             
             core.setFailed(`Issue #${issueNumber} does not exist in the "DA Tech" project board.`);
