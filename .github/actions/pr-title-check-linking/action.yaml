@@ -80,7 +80,7 @@ runs:
           // Validate issue exists in "DA Tech" organization project board
           try {
             const projectQuery = `
-              query($org: String!, $issueNumber: Int!) {
+              query($org: String!) {
                 organization(login: $org) {
                   projectsV2(first: 10, query: "DA Tech") {
                     nodes {
@@ -109,8 +109,7 @@ runs:
             `;
 
             const result = await github.graphql(projectQuery, {
-              org: context.repo.owner,
-              issueNumber: parseInt(issueNumber)
+              org: context.repo.owner
             });
 
             // DEBUG: Log all projects found
@@ -138,7 +137,7 @@ runs:
                             item.content?.repository?.owner?.login === context.repo.owner;
               
               if (item.content?.number === parseInt(issueNumber)) {
-                core.info(`Found issue #${issueNumber} but repo mismatch: ${item.content?.repository?.owner?.login}/${item.content?.repository?.name} vs ${context.repo.owner}/${context.repo.repo}`);
+                core.info(`Found issue #${issueNumber} but checking repo: ${item.content?.repository?.owner?.login}/${item.content?.repository?.name} vs ${context.repo.owner}/${context.repo.repo}`);
               }
               
               return matches;
