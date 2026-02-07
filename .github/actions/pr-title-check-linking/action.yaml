@@ -95,13 +95,41 @@ runs:
               issueNumber: parseInt(issueNumber)
             });
             
-          } catch (error) {
-            await github.rest.issues.createComment({
+            // If Issue exists, removes any previous error comments
+            const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: number,
-              body: `Issue #${issueNumber} does not exist, please, make sure that the Issue Number is correct!`
             });
+            const issueErrorComment = comments.find(c => c.body.includes("Issue #") && c.body.includes("does not exist"));
+            
+            if (issueErrorComment) {
+              await github.rest.issues.deleteComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: issueErrorComment.id
+              });
+              core.info("Deleted previous issue validation error comment.");
+            }
+            
+          } catch (error) {
+            // Check if error comment already exists
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: number,
+            });
+            const issueErrorComment = comments.find(c => c.body.includes("Issue #") && c.body.includes("does not exist"));
+            
+            if (!issueErrorComment) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: number,
+                body: `Issue #${issueNumber} does not exist in this repository.`
+              });
+            }
+            
             core.setFailed(`Issue #${issueNumber} does not exist in this repository.`);
             return;
           }
