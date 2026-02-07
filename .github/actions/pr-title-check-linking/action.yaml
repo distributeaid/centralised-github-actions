@@ -1,8 +1,8 @@
-name: 'PR Title Linker & Labeler'
-description: 'Enforces PR title conventions, links issues, and applies labels.'
+name: "PR Title Linker & Labeler"
+description: "Enforces PR title conventions, links issues, and applies labels."
 inputs:
   github-token:
-    description: 'GitHub Token for API access'
+    description: "GitHub Token for API access"
     required: true
 
 runs:
