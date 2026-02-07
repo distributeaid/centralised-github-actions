@@ -77,47 +77,15 @@ runs:
           const issueNumber = match[2];
           const closingKeyword = `Fixes #${issueNumber}`;
 
-          // Validate issue exists in "DA Tech" organization project board
+          // Validate issue exists in repository
           try {
-            const issueQuery = `
-              query($owner: String!, $repo: String!, $issueNumber: Int!) {
-                repository(owner: $owner, name: $repo) {
-                  issue(number: $issueNumber) {
-                    id
-                    number
-                    title
-                    projectItems(first: 10) {
-                      nodes {
-                        project {
-                          title
-                          number
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            `;
-
-            const result = await github.graphql(issueQuery, {
+            const { data: issue } = await github.rest.issues.get({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              issueNumber: parseInt(issueNumber)
+              issue_number: issueNumber
             });
-
-            const issue = result.repository.issue;
             
-            core.info(`Issue #${issue.number} found: "${issue.title}"`);
-            
-            const isInDATech = issue.projectItems.nodes.some(item => 
-              item.project.title === "DA Tech"
-            );
-
-            if (!isInDATech) {
-              throw new Error("Issue not in DA Tech board");
-            }
-            
-            core.info(`✓ Issue #${issueNumber} validated in DA Tech board`);
+            core.info(`✓ Issue #${issueNumber} exists: "${issue.title}"`);
             
             // Issue exists - remove any previous error comments
             const { data: comments } = await github.rest.issues.listComments({
@@ -125,7 +93,7 @@ runs:
               repo: context.repo.repo,
               issue_number: number,
             });
-            const issueErrorComment = comments.find(c => c.body.includes("❌ Issue #") && c.body.includes("does not exist"));
+            const issueErrorComment = comments.find(c => c.body.includes("Issue #") && c.body.includes("does not exist"));
             
             if (issueErrorComment) {
               await github.rest.issues.deleteComment({
@@ -137,32 +105,36 @@ runs:
             }
             
           } catch (error) {
-            core.error(`Validation error: ${error.message}`);
-            
-            const { data: comments } = await github.rest.issues.listComments({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: number,
-            });
-            const issueErrorComment = comments.find(c => c.body.includes("❌ Issue #") && c.body.includes("does not exist"));
-            
-            if (issueErrorComment) {
-              await github.rest.issues.deleteComment({
+            if (error.status === 404) {
+              core.error(`Issue #${issueNumber} does not exist in this repository`);
+              
+              const { data: comments } = await github.rest.issues.listComments({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                comment_id: issueErrorComment.id
+                issue_number: number,
               });
+              const issueErrorComment = comments.find(c => c.body.includes("Issue #") && c.body.includes("does not exist"));
+              
+              if (issueErrorComment) {
+                await github.rest.issues.deleteComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: issueErrorComment.id
+                });
+              }
+              
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: number,
+                body: `Issue #${issueNumber} does not exist in this repository.`
+              });
+              
+              core.setFailed(`Issue #${issueNumber} does not exist in this repository.`);
+              return;
             }
             
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: number,
-              body: `❌ Issue #${issueNumber} does not exist in the "DA Tech" project board.`
-            });
-            
-            core.setFailed(`Issue #${issueNumber} does not exist in the "DA Tech" project board.`);
-            return;
+            throw error;
           }
 
           // Add Issue Linking or updates if needed
