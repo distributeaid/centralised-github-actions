@@ -25,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Validate PR title and link to Issue
-        uses: distribute-id/centralised-github-actions/.github/actions/pr-title-check-linking
+        uses: distributeaid/centralised-github-actions/.github/actions/pr-title-check-linking
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 ```
