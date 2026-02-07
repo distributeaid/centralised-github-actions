@@ -148,13 +148,13 @@ runs:
             const fixesRegex = /Fixes #\d+/gi;
             currentBody = currentBody.replace(fixesRegex, '').trim();
 
-            // Add the new closing keyword in the "What changed?" section
+            // Add the new closing keyword replacing the Link Github Issue section
             if (currentBody.includes("## What changed?")) {
-              // Insert after the "What changed?" header, handling various line endings
+              // Replace the comment line with the Fixes keyword
               currentBody = currentBody.replace(
-                /## What changed?\s*/,
-                `## What changed?\n${closingKeyword}\n`
-              );
+              /<!-- include a link to a GitHub issue, if applicable -->/,  // Match the comment
+              closingKeyword                   // Replace it directly
+            );
             } else {
               // Fallback: append at the end
               currentBody = `${currentBody}\n\n${closingKeyword}`;
