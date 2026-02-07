@@ -102,6 +102,7 @@ runs:
               issue_number: number,
               body: `Issue #${issueNumber} does not exist, please, make sure that the Issue Number is correct!`
             });
+            core.setFailed(`Issue #${issueNumber} does not exist in this repository.`);
             return;
           }
 
