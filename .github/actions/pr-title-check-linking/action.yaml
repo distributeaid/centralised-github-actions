@@ -77,20 +77,24 @@ runs:
           const issueNumber = match[2];
           const closingKeyword = `Fixes #${issueNumber}`;
 
-          // Updates the PR body to include the closing keyword if it's not already present
+          // Add Issue Linking if not present
           let currentBody = body || "";
-          
-          if (!currentBody.includes(closingKeyword)) {
-            core.info(`Updating PR body to link issue #${issueNumber}`);
-            let newBody;
 
-            if (currentBody.includes(managedMarker)) {
-              // Replace ONLY the line after our marker
-              const regex = new RegExp(`${managedMarker}[\\s\\S]*`, 'g');
-              newBody = currentBody.replace(regex, `${managedMarker}\n${closingKeyword}`);
+          // Check if the closing keyword already exists anywhere in the body
+          if (!currentBody.includes(closingKeyword) && !currentBody.includes(`#${issueNumber}`)) {
+            core.info(`Updating PR body to link issue #${issueNumber}`);
+            
+            let newBody;
+            
+            // Add after "What changed?" section
+            if (currentBody.includes("## What changed?")) {
+              newBody = currentBody.replace(
+                "<!-- include a link to a GitHub issue, if applicable -->",
+                `<!-- include a link to a GitHub issue, if applicable -->\n${closingKeyword}`
+              );
             } else {
-              // Append to the end if marker doesn't exist
-              newBody = `${currentBody}\n\n${managedMarker}\n${closingKeyword}`;
+              // Append at the end if template not found
+              newBody = `${currentBody}\n\n${closingKeyword}`;
             }
 
             await github.rest.pulls.update({
