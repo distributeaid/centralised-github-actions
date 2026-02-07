@@ -140,36 +140,34 @@ runs:
           // Add Issue Linking or updates if needed
           let currentBody = body || "";
 
-          // Check if the closing keyword already exists
-          if (!currentBody.includes(closingKeyword)) {
-            core.info(`Adding ${closingKeyword} to PR body`);
+          // Check if we already have the correct Fixes line with the same issue number
+          if (currentBody.includes(closingKeyword)) {
+            core.info(`${closingKeyword} already exists in PR body - no update needed`);
+          } else {
+            core.info(`Updating to ${closingKeyword} in PR body`);
             
-            // Remove any OLD "Fixes #" lines (different issue numbers)
+            // Remove existing fixes lines to avoid duplicates
             const fixesRegex = /Fixes #\d+/gi;
             currentBody = currentBody.replace(fixesRegex, '').trim();
 
-            // Add the new closing keyword replacing the Link Github Issue section
-            if (currentBody.includes("## What changed?")) {
-              // Replace the comment line with the Fixes keyword
+            // Insert the new Fixes line before the comment (keeps comment as anchor)
+            if (currentBody.includes("<!-- include a link to a GitHub issue, if applicable -->")) {
               currentBody = currentBody.replace(
-              /<!-- include a link to a GitHub issue, if applicable -->/,  // Match the comment
-              closingKeyword                   // Replace it directly
-            );
+                /<!-- include a link to a GitHub issue, if applicable -->/,
+                `${closingKeyword}\n<!-- include a link to a GitHub issue, if applicable -->`
+              );
+              
+              await github.rest.pulls.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: number,
+                body: currentBody.trim()
+              });
+              
+              core.info("PR body updated successfully");
             } else {
-              // Fallback: append at the end
-              currentBody = `${currentBody}\n\n${closingKeyword}`;
+              core.warning("Template comment not found - skipping body update");
             }
-
-            await github.rest.pulls.update({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              pull_number: number,
-              body: currentBody.trim()
-            });
-            
-            core.info("PR body updated successfully");
-          } else {
-            core.info(`${closingKeyword} already exists in PR body`);
           }
 
           // Label Management (only if within valid types)
