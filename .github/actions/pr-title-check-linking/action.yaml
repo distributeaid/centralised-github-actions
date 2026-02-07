@@ -117,33 +117,31 @@ runs:
             return;
           }
 
-          // Add Issue Linking if not present
+          // Add Issue Linking or updates if needed
           let currentBody = body || "";
 
-          // Check if the closing keyword already exists anywhere in the body
-          if (!currentBody.includes(closingKeyword) && !currentBody.includes(`#${issueNumber}`)) {
-            core.info(`Updating PR body to link issue #${issueNumber}`);
-            
-            let newBody;
-            
-            // Adds Issue link after "What changed?" section
-            if (currentBody.includes("## What changed?")) {
-              newBody = currentBody.replace(
-                "<!-- include a link to a GitHub issue, if applicable -->",
-                `<!-- include a link to a GitHub issue, if applicable -->\n${closingKeyword}`
-              );
-            } else {
-              // Appends it at the end if template is not found
-              newBody = `${currentBody}\n\n${closingKeyword}`;
-            }
+          // Remove any existing "Fixes #" lines to prevent duplicates
+          const fixesRegex = /Fixes #\d+/gi;
+          currentBody = currentBody.replace(fixesRegex, '').trim();
 
-            await github.rest.pulls.update({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              pull_number: number,
-              body: newBody.trim()
-            });
+          // Add the new closing keyword in the "What changed?" section
+          if (currentBody.includes("## What changed?")) {
+            // Insert after the "What changed?" header
+            currentBody = currentBody.replace(
+              /(## What changed?\n)/,
+              `$1${closingKeyword}\n`
+            );
+          } else {
+            // Fallback: append at the end
+            currentBody = `${currentBody}\n\n${closingKeyword}`;
           }
+
+          await github.rest.pulls.update({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            pull_number: number,
+            body: currentBody.trim()
+          });
 
           // Label Management (only if within valid types)
           if (managedTypes.includes(prType) && !currentLabelNames.includes(prType)) {
