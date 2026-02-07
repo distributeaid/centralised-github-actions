@@ -78,29 +78,19 @@ runs:
           const closingKeyword = `Fixes #${issueNumber}`;
 
           // Validate issue exists in "DA Tech" organization project board
-          // Validate issue exists in "DA Tech" organization project board
           try {
-            const projectQuery = `
-              query($org: String!) {
-                organization(login: $org) {
-                  projectsV2(first: 10) {
-                    nodes {
-                      title
-                      number
-                      items(first: 100) {
-                        totalCount
-                        nodes {
-                          content {
-                            ... on Issue {
-                              number
-                              repository {
-                                name
-                                owner {
-                                  login
-                                }
-                              }
-                            }
-                          }
+            const issueQuery = `
+              query($owner: String!, $repo: String!, $issueNumber: Int!) {
+                repository(owner: $owner, name: $repo) {
+                  issue(number: $issueNumber) {
+                    id
+                    number
+                    title
+                    projectItems(first: 10) {
+                      nodes {
+                        project {
+                          title
+                          number
                         }
                       }
                     }
@@ -109,51 +99,21 @@ runs:
               }
             `;
 
-            const result = await github.graphql(projectQuery, {
-              org: context.repo.owner
+            const result = await github.graphql(issueQuery, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issueNumber: parseInt(issueNumber)
             });
 
-            // DEBUG: Log raw result
-            core.info(`Raw projects data: ${JSON.stringify(result.organization.projectsV2.nodes, null, 2)}`);
-            core.info(`Number of projects: ${result.organization.projectsV2.nodes.length}`);
-
-            // Try to find projects with any title variation
-            for (const project of result.organization.projectsV2.nodes) {
-              core.info(`Project found - Title: "${project.title}", Number: ${project.number}, Items: ${project.items.totalCount}`);
-            }
-
-            const daTechProject = result.organization.projectsV2.nodes.find(p => 
-              p.title && p.title.trim().toLowerCase() === "da tech"
+            const issue = result.repository.issue;
+            
+            core.info(`Issue #${issue.number} found: "${issue.title}"`);
+            
+            const isInDATech = issue.projectItems.nodes.some(item => 
+              item.project.title === "DA Tech"
             );
-            
-            if (!daTechProject) {
-              const availableTitles = result.organization.projectsV2.nodes.map(p => `"${p.title}"`).join(', ');
-              core.error(`Available projects: ${availableTitles}`);
-              throw new Error("DA Tech project not found");
-            }
 
-            // Continue with rest of validation...
-            core.info(`DA Tech project has ${daTechProject.items.totalCount} total items (fetched first 100)`);
-            
-            const issueNumbers = daTechProject.items.nodes
-              .filter(item => item.content?.number)
-              .map(item => `#${item.content.number} (${item.content.repository?.owner?.login}/${item.content.repository?.name})`);
-            core.info(`Sample issues in board: ${issueNumbers.slice(0, 10).join(', ')}`);
-
-            const issueExists = daTechProject.items.nodes.some(item => {
-              const matches = item.content?.number === parseInt(issueNumber) && 
-                            item.content?.repository?.name === context.repo.repo &&
-                            item.content?.repository?.owner?.login === context.repo.owner;
-              
-              if (item.content?.number === parseInt(issueNumber)) {
-                core.info(`Found issue #${issueNumber} in repo: ${item.content?.repository?.owner?.login}/${item.content?.repository?.name}`);
-              }
-              
-              return matches;
-            });
-
-            if (!issueExists) {
-              core.error(`Issue #${issueNumber} not found for repo ${context.repo.owner}/${context.repo.repo}`);
+            if (!isInDATech) {
               throw new Error("Issue not in DA Tech board");
             }
             
