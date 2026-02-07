@@ -83,37 +83,25 @@ runs:
               query($owner: String!, $repo: String!, $issueNumber: Int!) {
                 repository(owner: $owner, name: $repo) {
                   issue(number: $issueNumber) {
-                    projectItems(first: 10) {
-                      nodes {
-                        project {
-                          title
-                        }
-                      }
-                    }
+                    id
                   }
                 }
               }
             `;
 
-            const result = await github.graphql(projectQuery, {
+            await github.graphql(projectQuery, {
               owner: context.repo.owner,
               repo: context.repo.repo,
               issueNumber: parseInt(issueNumber)
             });
-
-            const isInDATech = result.repository.issue.projectItems.nodes.some(p => p.project.title === "DA Tech");
-
-            if (!isInDATech) {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: number,
-                body: `Issue #${issueNumber} is not in "DA Tech" project board. Please ensure the issue number is correct.`
-              });
-              return;
-            }
+            
           } catch (error) {
-            core.error(`Issue validation failed: ${error.message}`);
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: number,
+              body: `Issue #${issueNumber} does not exist, please, make sure that the Issue Number is correct!`
+            });
             return;
           }
 
