@@ -15,35 +15,58 @@ runs:
         script: |
           const { title, body, number } = context.payload.pull_request;
           const header = "**Watch out! Invalid PR Title Format:**";
-          const managedMarker = "";
-          const managedTypes = ['feat', 'fix', 'chore', 'docs', 'refactor', 'bug', 'style', 'test'];
 
-          // Fetch current context
-          const { data: currentLabels } = await github.rest.issues.listLabelsOnIssue({
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            issue_number: number,
-          });
-          const currentLabelNames = currentLabels.map(l => l.name.toLowerCase());
+          // Helper Functions
+          async function getAllComments() {
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: number,
+            });
+            return comments;
+          }
 
-          const { data: comments } = await github.rest.issues.listComments({
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            issue_number: number,
-          });
+          async function deleteCommentIfExists(commentId) {
+            if (commentId) {
+              await github.rest.issues.deleteComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: commentId
+              });
+            }
+          }
+
+          async function createOrUpdateComment(existingComment, messageBody) {
+            if (existingComment) {
+              if (existingComment.body !== messageBody) {
+                await github.rest.issues.updateComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: existingComment.id,
+                  body: messageBody
+                });
+              }
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: number,
+                body: messageBody
+              });
+            }
+          }
+
+          // Fetch all comments once
+          const comments = await getAllComments();
           const botComment = comments.find(c => c.body.includes(header));
+          const issueErrorComment = comments.find(c => c.body.includes("does not exist in this repository"));
 
           // Bypass Logic
           if (title.toUpperCase().includes("NOISSUE")) {
             core.info("Bypass keyword 'NOISSUE' detected.");
-            if (botComment) {
-              await github.rest.issues.deleteComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: botComment.id
-              });
-              core.info("Deleted previous validation warning.");
-            }
+            await deleteCommentIfExists(botComment?.id);
+            await deleteCommentIfExists(issueErrorComment?.id);
+            core.info("Validation bypassed - no further checks performed.");
             return;
           }
 
@@ -53,28 +76,24 @@ runs:
 
           if (!match) {
             core.warning("Title does not match required format: type/issue-number/description");
-            if (!botComment) {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: number,
-                body: `${header} Please use \`type/issue-number/description\` or include \`NOISSUE\` in the title.`
-              });
-            }
+            const errorMessage = `${header} Please use \`type/issue-number/description\` or include \`NOISSUE\` in the title.\n\nExample: \`feat/123/add-new-feature\``;
+            await createOrUpdateComment(botComment, errorMessage);
+            core.setFailed("PR title format is invalid");
             return; 
           }
 
-          // Clean up bot comment if title is now valid
-          if (botComment) {
-            await github.rest.issues.deleteComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              comment_id: botComment.id
-            });
+          // Clean up format validation comment if title is now valid
+          await deleteCommentIfExists(botComment?.id);
+          core.info("Title format validation passed.");
+
+          const issueNumber = match[2];
+
+          // Validate issue number is numeric
+          if (!/^\d+$/.test(issueNumber)) {
+            core.setFailed(`Invalid issue number: ${issueNumber}. Must be numeric.`);
+            return;
           }
 
-          const prType = match[1].toLowerCase();
-          const issueNumber = match[2];
           const closingKeyword = `Fixes #${issueNumber}`;
 
           // Validate issue exists in repository
@@ -87,108 +106,56 @@ runs:
             
             core.info(`✓ Issue #${issueNumber} exists: "${issue.title}"`);
             
-            // Issue exists - remove any previous error comments
-            const { data: comments } = await github.rest.issues.listComments({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: number,
-            });
-            const issueErrorComment = comments.find(c => c.body.includes("Issue #") && c.body.includes("does not exist"));
-            
-            if (issueErrorComment) {
-              await github.rest.issues.deleteComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: issueErrorComment.id
-              });
-              core.info("Deleted previous issue validation error comment.");
-            }
+            // Issue exists - remove any previous error comment
+            await deleteCommentIfExists(issueErrorComment?.id);
             
           } catch (error) {
             if (error.status === 404) {
               core.error(`Issue #${issueNumber} does not exist in this repository`);
               
-              const { data: comments } = await github.rest.issues.listComments({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: number,
-              });
-              const issueErrorComment = comments.find(c => c.body.includes("Issue #") && c.body.includes("does not exist"));
-              
-              if (issueErrorComment) {
-                await github.rest.issues.deleteComment({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  comment_id: issueErrorComment.id
-                });
-              }
-              
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: number,
-                body: `Issue #${issueNumber} does not exist in this repository.`
-              });
+              const errorMessage = `**Issue Validation Failed**\n\nIssue #${issueNumber} does not exist in this repository. Please create the issue first or update your PR title with the correct issue number.`;
+              await createOrUpdateComment(issueErrorComment, errorMessage);
               
               core.setFailed(`Issue #${issueNumber} does not exist in this repository.`);
               return;
             }
             
+            // Re-throw unexpected errors
             throw error;
           }
 
-          // Add Issue Linking or updates if needed
+          // Add Issue Linking or update if needed
           let currentBody = body || "";
 
           // Check if we already have the correct Fixes line with the same issue number
           if (currentBody.includes(closingKeyword)) {
             core.info(`${closingKeyword} already exists in PR body - no update needed`);
           } else {
-            core.info(`Updating to ${closingKeyword} in PR body`);
+            core.info(`Updating PR body with ${closingKeyword}`);
             
-            // Remove existing fixes lines to avoid duplicates
+            // Remove all existing "Fixes #" lines to avoid duplicates
             const fixesRegex = /Fixes #\d+/gi;
             currentBody = currentBody.replace(fixesRegex, '').trim();
 
-            // Insert the new Fixes line before the comment (keeps comment as anchor)
-            if (currentBody.includes("<!-- include a link to a GitHub issue, if applicable -->")) {
+            // Try to insert before the template comment
+            const templateComment = "<!-- include a link to a GitHub issue, if applicable -->";
+            if (currentBody.includes(templateComment)) {
               currentBody = currentBody.replace(
-                /<!-- include a link to a GitHub issue, if applicable -->/,
-                `${closingKeyword}\n<!-- include a link to a GitHub issue, if applicable -->`
+                templateComment,
+                `${closingKeyword}\n${templateComment}`
               );
-              
-              await github.rest.pulls.update({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                pull_number: number,
-                body: currentBody.trim()
-              });
-              
-              core.info("PR body updated successfully");
             } else {
-              core.warning("Template comment not found - skipping body update");
+              // Template comment not found - append to the beginning
+              core.info("Template comment not found - prepending Fixes line to PR body");
+              currentBody = `${closingKeyword}\n\n${currentBody}`;
             }
-          }
-
-          // Label Management (only if within valid types)
-          if (managedTypes.includes(prType) && !currentLabelNames.includes(prType)) {
-            core.info(`Adding label: ${prType}`);
-            await github.rest.issues.addLabels({
+            
+            await github.rest.pulls.update({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              issue_number: number,
-              labels: [prType]
-            }).catch(e => core.error(`Add label failed: ${e.message}`));
-          }
-
-          for (const label of currentLabelNames) {
-            if (managedTypes.includes(label) && label !== prType) {
-              core.info(`Removing outdated label: ${label}`);
-              await github.rest.issues.removeLabel({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: number,
-                name: label
-              }).catch(() => {});
-            }
+              pull_number: number,
+              body: currentBody.trim()
+            });
+            
+            core.info("PR body updated successfully");
           }
