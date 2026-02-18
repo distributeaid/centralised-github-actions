@@ -4,7 +4,7 @@ Centralised Github Actions to be reused for Distribute Aid.
 # Actions available
 
 ## PR Title Check
-This GitHub Action enforces our naming convention for Pull Request titles, links the Kanban Issue with the PR and applies labels according to the PR type in the title.
+This GitHub Action enforces our naming convention for Pull Request titles, links the Kanban Issue with the PR. It expects issue type/issue number/ description. If we want to bypass it for a PR, we just need to have NOISSUE in the PR title.
 
 ### Inputs
 
