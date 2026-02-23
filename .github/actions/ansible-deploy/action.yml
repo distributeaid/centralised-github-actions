@@ -1,0 +1,52 @@
+name: "Ansible Deploy"
+description: "Deploys an application by checking out a branch, running yarn install and build, and restarting the PM2 service via Ansible."
+
+inputs:
+  host:
+    required: true
+    description: "Server IP to deploy to"
+  branch:
+    required: true
+    description: "Branch to check out and deploy"
+  repo_name:
+    required: true
+    description: "Repository name — matches the cloned folder name and the PM2 service name"
+  SSH_PRIVATE_KEY:
+    required: true
+    description: "Deploy SSH private key"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Set up SSH key
+      shell: bash
+      run: |
+        mkdir -p ~/.ssh
+        echo "${{ inputs.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
+        chmod 600 ~/.ssh/id_ed25519
+        ssh-keyscan -H ${{ inputs.host }} >> ~/.ssh/known_hosts
+
+    - name: Checkout infrastructure repo
+      uses: actions/checkout@v4
+      with:
+        repository: distributeaid/infrastructure
+        path: infrastructure
+
+    - name: Install Ansible
+      shell: bash
+      run: pip install ansible
+
+    - name: Write dynamic inventory
+      shell: bash
+      run: |
+        cat > /tmp/inventory.ini << EOF
+        [deploy]
+        ${{ inputs.host }} ansible_user=deploy
+        EOF
+
+    - name: Run deploy playbook
+      shell: bash
+      run: |
+        ansible-playbook infrastructure/ansible/playbooks/deploy.yml \
+          -i /tmp/inventory.ini \
+          --extra-vars "branch=${{ inputs.branch }} repo_name=${{ inputs.repo_name }}"
