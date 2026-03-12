@@ -1,0 +1,21 @@
+---
+name: Tag Release to Main
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  tag-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: '0'
+          fetch-tags: 'true'
+
+      - name: Tag Release to Main
+        uses: distributeaid/centralised-github-actions/.github/actions/tag-release@main
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,32 @@
+---
+name: Tag Release
+description: "Create release tag on the main branch"
+inputs:
+  github-token:
+    description: "GitHub token for authentication"
+    required: true
+  target-branch:
+    description: "Branch to create the tag"
+    default: "main"
+    required: false
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Generate and push tag to target branch
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+      run: |
+        LATEST_TAG="$(git tag --list "v*" | sort --version-sort | tail --lines 1)"
+
+        if [ -z "$LATEST_TAG" ]; then
+          MAJOR_VERSION=0
+          MINOR_VERSION=0
+        else
+          MAJOR_VERSION="$(echo "$LATEST_TAG" | cut -d '.' -f 1 | cut -d 'v' -f 2)"
+          MINOR_VERSION="$(echo "$LATEST_TAG" | cut -d '.' -f 2)"
+        fi
+
+        NEW_TAG="v$MAJOR_VERSION.$((MINOR_VERSION + 1))"
+        gh release create "$NEW_TAG" --title "$NEW_TAG" --generate-notes --target ${{ inputs.target-branch }}
