@@ -89,4 +89,4 @@ runs:
           -e "repo_url=git@github.com:distributeaid/${{ inputs.repo_name }}.git" \
           -e "repo_name=${{ inputs.repo_name }}" \
           -e "branch=${{ inputs.branch }}" \
-          -e "environment=${{ inputs.environment }}"
+          -e "deploy_env=${{ inputs.environment }}"
