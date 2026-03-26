@@ -36,17 +36,15 @@ Deploys an application to UpCloud infrastructure via Ansible, using dynamic inve
 
 ### Inputs
 
-| name                    | description                                                                               | required |
-|-------------------------|-------------------------------------------------------------------------------------------|----------|
-| `environment`           | Deployment environment (`staging` or `prod`)                                              | `true`   |
-| `branch`                | Branch to deploy                                                                          | `true`   |
-| `app`                   | UpCloud app label value (e.g. `aggregated-public-information`)                            | `true`   |
-| `repo_name`             | Directory name on server (e.g. `aggregated-public-information`)                           | `true`   |
-| `repo_url`              | SSH clone URL (e.g. `git@github.com:distributeaid/aggregated-public-information.git`)     | `true`   |
-| `infra_checkout_token`  | GitHub token with read access to `distributeaid/infrastructure`                           | `true`   |
-| `upcloud_token`         | UpCloud API token                                                                         | `true`   |
-| `ansible_ssh_private_key` | SSH private key for Ansible to connect to servers                                       | `true`   |
-| `sops_age_key`          | Age private key for SOPS secret decryption                                                | `true`   |
+| name                      | description                                                                                                                          | required |
+|---------------------------|--------------------------------------------------------------------------------------------------------------------------------------|----------|
+| `environment`             | Deployment environment (`staging` or `prod`)                                                                                         | `true`   |
+| `branch`                  | Branch to deploy                                                                                                                     | `true`   |
+| `repo_name`               | Repository and app name (e.g. `aggregated-public-information`) — used for UpCloud label lookup, server directory, and SSH clone URL  | `true`   |
+| `infra_checkout_token`    | GitHub token with read access to `distributeaid/infrastructure`                                                                      | `true`   |
+| `upcloud_token`           | UpCloud API token                                                                                                                    | `true`   |
+| `ansible_ssh_private_key` | SSH private key for Ansible to connect to servers                                                                                    | `true`   |
+| `sops_age_key`            | Age private key for SOPS secret decryption                                                                                           | `true`   |
 
 ### Secrets setup
 
@@ -81,9 +79,7 @@ jobs:
         with:
           environment: ${{ inputs.environment }}
           branch: ${{ inputs.branch }}
-          app: aggregated-public-information
           repo_name: aggregated-public-information
-          repo_url: git@github.com:distributeaid/aggregated-public-information.git
           infra_checkout_token: ${{ secrets.INFRA_CHECKOUT_TOKEN }}
           upcloud_token: ${{ secrets.UPCLOUD_TOKEN }}
           ansible_ssh_private_key: ${{ secrets.ANSIBLE_SSH_PRIVATE_KEY }}

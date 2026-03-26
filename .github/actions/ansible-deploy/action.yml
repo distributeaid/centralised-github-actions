@@ -8,15 +8,9 @@ inputs:
   branch:
     required: true
     description: "Branch to deploy"
-  app:
-    required: true
-    description: "UpCloud app label value (e.g. aggregated-public-information)"
   repo_name:
     required: true
-    description: "Directory name on server (e.g. aggregated-public-information)"
-  repo_url:
-    required: true
-    description: "SSH clone URL (e.g. git@github.com:distributeaid/aggregated-public-information.git)"
+    description: "Repository and app name (e.g. aggregated-public-information) — used for UpCloud label lookup, server directory, and SSH clone URL"
   infra_checkout_token:
     required: true
     description: "GitHub token with read access to distributeaid/infrastructure"
@@ -86,13 +80,13 @@ runs:
         ANSIBLE_CONFIG: ansible/ansible.cfg
         UPCLOUD_TOKEN: ${{ inputs.upcloud_token }}
       run: |
-        APP_GROUP="${{ inputs.app }}"
+        APP_GROUP="${{ inputs.repo_name }}"
         APP_GROUP="${APP_GROUP//-/_}"
         ansible-playbook ansible/playbooks/deploy.yml \
           -i ansible/inventory/upcloud.yml \
           --limit "env_${{ inputs.environment }}_app_${APP_GROUP}" \
           --private-key ~/.ssh/ansible_deploy \
-          -e "repo_url=${{ inputs.repo_url }}" \
+          -e "repo_url=git@github.com:distributeaid/${{ inputs.repo_name }}.git" \
           -e "repo_name=${{ inputs.repo_name }}" \
           -e "branch=${{ inputs.branch }}" \
           -e "environment=${{ inputs.environment }}"
