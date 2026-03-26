@@ -32,18 +32,25 @@ jobs:
 
 ## Ansible Deploy
 
-This GitHub Action deploys an application to a server by checking out the specified branch, running `yarn install` and `yarn build`, and restarting the PM2 service. It connects to the server over SSH using the provided private key.
+Deploys an application to UpCloud infrastructure via Ansible, using dynamic inventory (UpCloud labels) and SOPS-encrypted secrets.
 
 ### Inputs
 
-| name              | description                                                                              | required | default |
-|-------------------|------------------------------------------------------------------------------------------|----------|---------|
-| `host`            | <p>Server IP to deploy to</p>                                                            | `true`   | N/A     |
-| `branch`          | <p>Branch to check out and deploy</p>                                                    | `true`   | N/A     |
-| `repo_name`       | <p>Repository name — matches the cloned folder name and PM2 service name</p>            | `true`   | N/A     |
-| `SSH_PRIVATE_KEY` | <p>Deploy SSH private key</p>                                                            | `true`   | N/A     |
+| name                      | description                                                                                                                          | required |
+|---------------------------|--------------------------------------------------------------------------------------------------------------------------------------|----------|
+| `environment`             | Deployment environment (`staging` or `prod`)                                                                                         | `true`   |
+| `branch`                  | Branch to deploy                                                                                                                     | `true`   |
+| `repo_name`               | Repository and app name (e.g. `aggregated-public-information`) — used for UpCloud label lookup, server directory, and SSH clone URL  | `true`   |
+| `infra_checkout_token`    | GitHub token with read access to `distributeaid/infrastructure`                                                                      | `true`   |
+| `upcloud_token`           | UpCloud API token                                                                                                                    | `true`   |
+| `ansible_ssh_private_key` | SSH private key for Ansible to connect to servers                                                                                    | `true`   |
+| `sops_age_key`            | Age private key for SOPS secret decryption                                                                                           | `true`   |
 
-### Examples
+### Secrets setup
+
+`INFRA_CHECKOUT_TOKEN` must be a fine-grained PAT with **Contents: Read** on `distributeaid/infrastructure`, stored as an org secret accessible to caller repos.
+
+### Example
 
 ```yaml
 name: Deploy
@@ -51,12 +58,17 @@ name: Deploy
 on:
   workflow_dispatch:
     inputs:
-      host:
+      environment:
+        description: "Deployment environment"
         required: true
-        description: "Server IP"
+        type: choice
+        options:
+          - staging
+          - prod
       branch:
-        required: true
         description: "Branch to deploy"
+        required: true
+        default: main
 
 jobs:
   deploy:
@@ -65,8 +77,11 @@ jobs:
       - name: Deploy application
         uses: distributeaid/centralised-github-actions/.github/actions/ansible-deploy@main
         with:
-          host: ${{ inputs.host }}
+          environment: ${{ inputs.environment }}
           branch: ${{ inputs.branch }}
           repo_name: aggregated-public-information
-          SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
+          infra_checkout_token: ${{ secrets.INFRA_CHECKOUT_TOKEN }}
+          upcloud_token: ${{ secrets.UPCLOUD_TOKEN }}
+          ansible_ssh_private_key: ${{ secrets.ANSIBLE_SSH_PRIVATE_KEY }}
+          sops_age_key: ${{ secrets.SOPS_AGE_KEY }}
 ```
