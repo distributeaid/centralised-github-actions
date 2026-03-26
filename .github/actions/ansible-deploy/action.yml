@@ -1,52 +1,98 @@
 name: "Ansible Deploy"
-description: "Deploys an application by checking out a branch, running yarn install and build, and restarting the PM2 service via Ansible."
+description: "Deploys an application via Ansible to UpCloud infrastructure using dynamic inventory and SOPS-encrypted secrets."
 
 inputs:
-  host:
+  environment:
     required: true
-    description: "Server IP to deploy to"
+    description: "Deployment environment (staging or prod)"
   branch:
     required: true
-    description: "Branch to check out and deploy"
+    description: "Branch to deploy"
+  app:
+    required: true
+    description: "UpCloud app label value (e.g. aggregated-public-information)"
   repo_name:
     required: true
-    description: "Repository name — matches the cloned folder name and the PM2 service name"
-  SSH_PRIVATE_KEY:
+    description: "Directory name on server (e.g. aggregated-public-information)"
+  repo_url:
     required: true
-    description: "Deploy SSH private key"
+    description: "SSH clone URL (e.g. git@github.com:distributeaid/aggregated-public-information.git)"
+  infra_checkout_token:
+    required: true
+    description: "GitHub token with read access to distributeaid/infrastructure"
+  upcloud_token:
+    required: true
+    description: "UpCloud API token"
+  ansible_ssh_private_key:
+    required: true
+    description: "SSH private key for Ansible to connect to servers"
+  sops_age_key:
+    required: true
+    description: "Age private key for SOPS secret decryption"
 
 runs:
   using: "composite"
   steps:
-    - name: Set up SSH key
-      shell: bash
-      run: |
-        mkdir -p ~/.ssh
-        echo "${{ inputs.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
-        chmod 600 ~/.ssh/id_ed25519
-        ssh-keyscan -H ${{ inputs.host }} >> ~/.ssh/known_hosts
-
     - name: Checkout infrastructure repo
       uses: actions/checkout@v4
       with:
         repository: distributeaid/infrastructure
-        path: infrastructure
+        token: ${{ inputs.infra_checkout_token }}
 
-    - name: Install Ansible
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+
+    - name: Install Ansible and UpCloud API client
       shell: bash
-      run: pip install ansible
+      run: pip install ansible upcloud-api
 
-    - name: Write dynamic inventory
+    - name: Install Ansible collections
+      shell: bash
+      run: ansible-galaxy collection install -r ansible/requirements.yml
+
+    - name: Install sops
       shell: bash
       run: |
-        cat > /tmp/inventory.ini << EOF
-        [deploy]
-        ${{ inputs.host }} ansible_user=deploy
-        EOF
+        curl -sSfL "https://github.com/getsops/sops/releases/download/v3.9.1/sops-v3.9.1.linux.amd64" \
+          -o /usr/local/bin/sops
+        chmod +x /usr/local/bin/sops
+
+    - name: Install age
+      shell: bash
+      run: |
+        curl -sSfL "https://github.com/FiloSottile/age/releases/download/v1.2.0/age-v1.2.0-linux-amd64.tar.gz" \
+          | tar -xz -C /tmp
+        mv /tmp/age/age /usr/local/bin/age
+
+    - name: Write Ansible SSH private key
+      shell: bash
+      run: |
+        mkdir -p ~/.ssh
+        echo "${{ inputs.ansible_ssh_private_key }}" > ~/.ssh/ansible_deploy
+        chmod 600 ~/.ssh/ansible_deploy
+
+    - name: Write SOPS age key
+      shell: bash
+      run: |
+        mkdir -p ~/.config/sops/age
+        echo "${{ inputs.sops_age_key }}" > ~/.config/sops/age/keys.txt
+        chmod 600 ~/.config/sops/age/keys.txt
 
     - name: Run deploy playbook
       shell: bash
+      env:
+        ANSIBLE_CONFIG: ansible/ansible.cfg
+        UPCLOUD_TOKEN: ${{ inputs.upcloud_token }}
       run: |
-        ansible-playbook infrastructure/ansible/playbooks/deploy.yml \
-          -i /tmp/inventory.ini \
-          --extra-vars "branch=${{ inputs.branch }} repo_name=${{ inputs.repo_name }}"
+        APP_GROUP="${{ inputs.app }}"
+        APP_GROUP="${APP_GROUP//-/_}"
+        ansible-playbook ansible/playbooks/deploy.yml \
+          -i ansible/inventory/upcloud.yml \
+          --limit "env_${{ inputs.environment }}_app_${APP_GROUP}" \
+          --private-key ~/.ssh/ansible_deploy \
+          -e "repo_url=${{ inputs.repo_url }}" \
+          -e "repo_name=${{ inputs.repo_name }}" \
+          -e "branch=${{ inputs.branch }}" \
+          -e "environment=${{ inputs.environment }}"
